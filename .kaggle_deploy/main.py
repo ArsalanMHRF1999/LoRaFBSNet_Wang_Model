@@ -118,27 +118,10 @@ def main():
     # Useful for unbuffered logs
     os.environ["PYTHONUNBUFFERED"] = "1"
 
-    #runpy.run_path(
-    #    str(entrypoint),
-    #    run_name="__main__"
-    #)
-
-    print("\n" + "=" * 60)
-    print("INSPECTING KAGGLE INPUT")
-    print("=" * 60)
-
-    input_dir = Path("/kaggle/input")
-
-    for item in sorted(input_dir.iterdir()):
-
-        print(f"\nDataset: {item}")
-
-        if item.is_dir():
-
-            for sub in sorted(item.iterdir())[:20]:
-                print("   ", sub.name)
-
-    print("\n" + "=" * 60)
+    runpy.run_path(
+        str(entrypoint),
+        run_name="__main__"
+    )
 
     print("\nProject execution completed successfully.")
 
