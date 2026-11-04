@@ -4,17 +4,17 @@ from src.utils.visualize_dataset import show_ucf_clip_sample_with_class
 import torch
 
 def dataset_report():
-    train_dataset, train_video_loader = create_dataloaders("train")
-    val_dataset, val_video_loader = create_dataloaders("val")
+    # train_dataset, train_video_loader = create_dataloaders("train")
+    # val_dataset, val_video_loader = create_dataloaders("val")
     test_dataset, test_video_loader = create_dataloaders("test")
     print("Number of videos:")
-    print("Train:", len(train_dataset.samples))
-    print("Validation:", len(val_dataset.samples))
+    # print("Train:", len(train_dataset.samples))
+    # print("Validation:", len(val_dataset.samples))
     print("Test:", len(test_dataset.samples))
 
     print("\nNumber of generated clips:")
-    print("Train:", len(train_dataset))
-    print("Validation:", len(val_dataset))
+    # print("Train:", len(train_dataset))
+    # print("Validation:", len(val_dataset))
     print("Test:", len(test_dataset))
 
     clips, labels = next(iter(test_video_loader))
@@ -48,9 +48,9 @@ def dataset_report():
 
     # Test visualization on any sample index
     show_ucf_clip_sample_with_class(
-        train_video_loader.dataset,
+        test_video_loader.dataset,
         idx_to_class,
         sample_idx=10,
         n_show=8,
-        title_prefix="Full UCF101 clip"
+        title_prefix="Test UCF101 clip"
     )
