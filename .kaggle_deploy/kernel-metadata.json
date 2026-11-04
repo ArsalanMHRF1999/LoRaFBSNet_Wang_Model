@@ -7,11 +7,10 @@
     "is_private": false,
     "enable_gpu": true,
     "enable_internet": true,
-    "dataset_sources": [],
     "competition_sources": [],
     "kernel_sources": [],
     "model_sources": [],
-    "data_sources": [
+    "dataset_sources": [
         "matthewjansen/ucf101-action-recognition"
     ]
 }
