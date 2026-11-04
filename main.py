@@ -35,6 +35,15 @@ if input_dir.exists():
 print("\nKaggle working directory:")
 print(list(Path("/kaggle/working").iterdir()))
 
+for item in sorted(input_dir.iterdir()):
+    print(f"\nDataset: {item}")
+
+    if item.is_dir():
+        for sub in sorted(item.iterdir())[:20]:
+            print("   ", sub.name)
+
+print("=" * 60)
+
 print("\n" + "=" * 70)
 print("DIAGNOSTICS COMPLETED")
 print("=" * 70)
