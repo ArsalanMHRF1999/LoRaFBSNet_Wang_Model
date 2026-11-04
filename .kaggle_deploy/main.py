@@ -16,140 +16,54 @@ WORK_DIR = Path("/kaggle/working")
 REPO_DIR = WORK_DIR / "LoRaFBsnet_Wang"
 
 
-def execute(command, env=None):
-    print("\n>>>", " ".join(command), flush=True)
-
-    subprocess.run(
-        command,
-        check=True,
-        env=env
-    )
-
-
 def main():
 
-    print("=" * 60)
-    print("LoRaFB-SNet | Kaggle GPU Deployment")
-    print("=" * 60)
-
-    # --------------------------------------------------------
-    # 1. Retrieve GitHub credentials if repository is private
-    # --------------------------------------------------------
-
-    clone_env = os.environ.copy()
-
-    try:
-        from kaggle_secrets import UserSecretsClient
-
-        print("Retrieving GitHub token...")
-
-        token = UserSecretsClient().get_secret(
-            "GITHUB_TOKEN"
-        )
-
-        if not token:
-            raise RuntimeError(
-                "GITHUB_TOKEN is empty or unavailable. "
-                "Check Kaggle Secrets permissions."
-            )
-
-        auth = base64.b64encode(
-            f"x-access-token:{token}".encode()
-        ).decode()
-
-        clone_env = os.environ.copy()
-
-        clone_env["GIT_CONFIG_COUNT"] = "1"
-        clone_env["GIT_CONFIG_KEY_0"] = "http.extraheader"
-        clone_env["GIT_CONFIG_VALUE_0"] = (
-            "AUTHORIZATION: basic " + auth
-        )
-
-        print("GitHub authentication configured.")
-
-    except Exception:
-        print("No GitHub token available; trying public access.")
-
-    # --------------------------------------------------------
-    # 2. Clone latest GitHub repository
-    # --------------------------------------------------------
+    print("Cloning project from GitHub...")
 
     if REPO_DIR.exists():
+        import shutil
+        shutil.rmtree(REPO_DIR)
+
+    subprocess.run(
+        [
+            "git", "clone",
+            "--depth", "1",
+            "--branch", BRANCH,
+            REPO_URL,
+            str(REPO_DIR)
+        ],
+        check=True
+    )
+
+    # Install requirements
+    requirements = REPO_DIR / "requirements.txt"
+
+    if requirements.exists():
         subprocess.run(
-            ["rm", "-rf", str(REPO_DIR)],
+            [
+                sys.executable,
+                "-m", "pip",
+                "install",
+                "-r", str(requirements)
+            ],
             check=True
         )
 
-    execute([
-        "git",
-        "clone",
-        "--depth", "1",
-        "--branch", BRANCH,
-        REPO_URL,
-        str(REPO_DIR)
-    ], env=clone_env)
+    # Execute ROOT main.py
+    project_main = REPO_DIR / "main.py"
 
-    print("GitHub repository cloned successfully.")
+    if not project_main.exists():
+        raise FileNotFoundError(project_main)
 
-    # --------------------------------------------------------
-    # 3. Check GPU
-    # --------------------------------------------------------
-
-    execute([
-        sys.executable,
-        "-c",
-        "import torch; "
-        "print('PyTorch:', torch.__version__); "
-        "print('CUDA available:', torch.cuda.is_available()); "
-        "print('GPU:', torch.cuda.get_device_name(0) "
-        "if torch.cuda.is_available() else 'Not available')"
-    ])
-
-    # --------------------------------------------------------
-    # 4. Install project dependencies
-    # --------------------------------------------------------
-
-    requirements_path = REPO_DIR / REQUIREMENTS
-
-    if requirements_path.exists():
-
-        print("Installing project dependencies...")
-
-        execute([
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "-r",
-            str(requirements_path)
-        ])
-
-    else:
-        print("No requirements.txt found. Skipping installation.")
-
-    # --------------------------------------------------------
-    # 5. Execute actual project main.py
-    # --------------------------------------------------------
-
-    entrypoint = REPO_DIR / ENTRYPOINT
-
-    if not entrypoint.exists():
-        raise FileNotFoundError(
-            f"Project entrypoint not found: {entrypoint}"
-        )
+    print("\nExecuting ROOT main.py...\n")
 
     os.chdir(REPO_DIR)
-
     sys.path.insert(0, str(REPO_DIR))
 
-    print("\nStarting project execution...")
-    print("Entry point:", entrypoint)
-
     runpy.run_path(
-        str(entrypoint),
+        str(project_main),
         run_name="__main__"
     )
-
 
 if __name__ == "__main__":
     main()
