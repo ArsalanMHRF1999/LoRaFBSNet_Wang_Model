@@ -28,7 +28,3 @@ def create_annotations(split):
         f"{split}: {len(relative_paths)} videos | "
         f"Annotations: {annotation_dir}"
     )
-
-
-for split in SPLITS:
-    create_annotations(split)
