@@ -1,4 +1,4 @@
-from src.utils.paths import DATA_ROOT, ANNOTATION_ROOT
+from utils.paths import DATA_ROOT, ANNOTATION_ROOT
 
 SPLITS = ["train", "val", "test"]
 
