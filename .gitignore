@@ -1,0 +1,22 @@
+# Kaggle deployment
+.kaggle_deploy/
+
+# Experiment outputs
+outputs/
+runs/
+logs/
+
+# Model checkpoints
+*.pth
+*.pt
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/

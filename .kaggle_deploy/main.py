@@ -15,6 +15,11 @@ REQUIREMENTS = 'requirements.txt'
 WORK_DIR = Path("/kaggle/working")
 REPO_DIR = WORK_DIR / "LoRaFBsnet_Wang"
 
+WORK_DIR.mkdir(parents=True, exist_ok=True)
+os.chdir(WORK_DIR)
+
+print("Current working directory:", os.getcwd())
+
 
 def execute(command, env=None):
     print("\n>>>", " ".join(command), flush=True)
@@ -73,6 +78,11 @@ def main():
     # --------------------------------------------------------
     # 2. Clone latest GitHub repository
     # --------------------------------------------------------
+
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+    # IMPORTANT: Move outside the repository before deleting it
+    os.chdir(WORK_DIR)
 
     if REPO_DIR.exists():
         subprocess.run(

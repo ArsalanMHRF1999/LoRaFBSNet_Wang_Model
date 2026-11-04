@@ -1,0 +1,19 @@
+
+# Video processing
+decord
+av==18.1.0
+
+# Spiking Neural Networks
+spikingjelly==0.0.0.0.14
+
+# Scientific computing
+numpy
+pandas
+scikit-learn
+matplotlib
+
+# Image processing
+Pillow
+
+# Progress monitoring
+tqdm

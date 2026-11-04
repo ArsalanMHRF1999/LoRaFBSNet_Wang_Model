@@ -1,21 +1,27 @@
 
 #!/usr/bin/env python3
 """
-VS Code -> GitHub -> Kaggle GPU deployment
+VS Code -> GitHub -> Kaggle GPU
 
 Workflow:
-1. Check Git repository and committed changes.
-2. Push the current branch to GitHub.
-3. Generate Kaggle kernel metadata.
-4. Generate a Kaggle bootstrap script.
-5. Push the bootstrap kernel using Kaggle CLI.
-6. Kaggle clones GitHub and executes the real main.py.
+    1. Validate Git repository
+    2. Push current branch to GitHub
+    3. Generate Kaggle bootstrap script
+    4. Generate Kaggle metadata
+    5. Push and run Kaggle kernel
+    6. Monitor execution status
+    7. Display execution logs on failure
+
+Results remain on Kaggle.
 """
 
 import argparse
 import json
+import re
 import subprocess
 import sys
+import time
+
 from pathlib import Path
 
 
@@ -35,47 +41,63 @@ DEPLOY_DIR = ROOT / ".kaggle_deploy"
 
 KAGGLE_TIMEOUT = 7200
 
-# GitHub private repository authentication:
-# Add GITHUB_TOKEN as a Kaggle Secret if the repository is private.
-GITHUB_SECRET_NAME = "GITHUB_TOKEN"
+POLL_INTERVAL = 30
+STATUS_WAIT_TIMEOUT = 7800
 
+GPU_ENABLED = True
+INTERNET_ENABLED = True
+
+
+METADATA_PATH = DEPLOY_DIR / "kernel-metadata.json"
 
 # ============================================================
-# UTILITIES
+# COMMAND UTILITIES
 # ============================================================
 
-def run_command(command, cwd=None):
-    """Run a shell command and stop if it fails."""
+def run_command(command, cwd=None, capture=False):
 
-    print(f"\n>>> {' '.join(map(str, command))}")
+    print("\n>>>", " ".join(map(str, command)), flush=True)
 
-    subprocess.run(
+    return subprocess.run(
         command,
         cwd=cwd,
-        check=True
+        check=True,
+        text=True,
+        capture_output=capture
     )
 
 
 def git_output(*args):
-    """Get output from a Git command."""
 
-    result = subprocess.run(
+    result = run_command(
         ["git", *args],
         cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True
+        capture=True
     )
 
     return result.stdout.strip()
 
 
+def check_kaggle_cli():
+
+    print("\nChecking Kaggle CLI...")
+
+    run_command([
+        "kaggle",
+        "--version"
+    ])
+
+
+# ============================================================
+# GITHUB
+# ============================================================
+
 def get_github_repository():
-    """Get and normalize the origin GitHub URL."""
 
     url = git_output("remote", "get-url", "origin")
 
     if url.startswith("git@github.com:"):
+
         url = url.replace(
             "git@github.com:",
             "https://github.com/",
@@ -83,6 +105,7 @@ def get_github_repository():
         )
 
     elif url.startswith("ssh://git@github.com/"):
+
         url = url.replace(
             "ssh://git@github.com/",
             "https://github.com/",
@@ -90,23 +113,27 @@ def get_github_repository():
         )
 
     if not url.startswith("https://github.com/"):
+
         raise ValueError(
-            f"Expected a GitHub origin URL, got: {url}"
+            f"Invalid GitHub origin: {url}"
         )
 
     return url.removesuffix(".git") + ".git"
 
 
 def check_git():
-    """Validate Git repository and committed changes."""
 
-    print("\n[1/5] Checking Git repository...")
+    print("\n[1/7] Checking Git repository...")
 
-    branch = git_output("branch", "--show-current")
+    branch = git_output(
+        "branch",
+        "--show-current"
+    )
 
     if not branch:
+
         raise RuntimeError(
-            "Git is in detached HEAD state. Checkout a branch first."
+            "Detached HEAD detected. Checkout a branch first."
         )
 
     changes = git_output(
@@ -116,171 +143,142 @@ def check_git():
     )
 
     if changes:
-        print("\nUncommitted changes detected:")
+
         print(changes)
 
         raise RuntimeError(
-            "Commit your changes before deployment.\n"
-            "Example:\n"
-            "git add .\n"
-            'git commit -m "Update experiments"'
+            "Uncommitted changes detected.\n"
+            "Commit all changes before deployment."
         )
 
     repo_url = get_github_repository()
 
-    print(f"GitHub repository: {repo_url}")
-    print(f"Current branch: {branch}")
+    if not PROJECT_ENTRYPOINT:
+
+        raise RuntimeError("Invalid project entrypoint.")
+
+    entrypoint = ROOT / PROJECT_ENTRYPOINT
+
+    if not entrypoint.is_file():
+
+        raise FileNotFoundError(entrypoint)
+
+    print("Repository:", repo_url)
+    print("Branch:", branch)
 
     return repo_url, branch
 
 
-# ============================================================
-# GITHUB PUSH
-# ============================================================
-
 def push_to_github(branch):
-    """Push current committed branch to GitHub."""
 
-    print("\n[2/5] Pushing to GitHub...")
+    print("\n[2/7] Pushing to GitHub...")
 
-    run_command(
-        ["git", "push", "-u", "origin", branch],
-        cwd=ROOT
-    )
+    run_command([
+        "git",
+        "push",
+        "-u",
+        "origin",
+        branch
+    ], cwd=ROOT)
 
-    print("GitHub push completed.")
+    print("GitHub push successful.")
 
 
 # ============================================================
-# KAGGLE BOOTSTRAP SCRIPT
+# BOOTSTRAP
 # ============================================================
 
 def create_bootstrap(repo_url, branch):
-    """
-    Generate the main.py that Kaggle executes.
 
-    This script clones the GitHub repository,
-    installs requirements, and runs the actual project.
-    """
+    print("\n[3/7] Generating Kaggle bootstrap...")
 
-    print("\n[3/5] Creating Kaggle bootstrap script...")
-
-    bootstrap = f'''
+    bootstrap = r'''
 import os
 import sys
 import runpy
 import subprocess
-import base64
 from pathlib import Path
 
-REPO_URL = {repo_url!r}
-BRANCH = {branch!r}
 
-ENTRYPOINT = {PROJECT_ENTRYPOINT!r}
-REQUIREMENTS = {REQUIREMENTS_FILE!r}
+REPO_URL = __REPO_URL__
+BRANCH = __BRANCH__
+
+ENTRYPOINT = __ENTRYPOINT__
+REQUIREMENTS = __REQUIREMENTS__
 
 WORK_DIR = Path("/kaggle/working")
+
 REPO_DIR = WORK_DIR / "LoRaFBsnet_Wang"
 
 
-def execute(command, env=None):
-    print("\\n>>>", " ".join(command), flush=True)
+def execute(command):
+
+    print(
+        "\n>>> " + " ".join(map(str, command)),
+        flush=True
+    )
 
     subprocess.run(
         command,
-        check=True,
-        env=env
+        check=True
     )
 
 
 def main():
 
-    print("=" * 60)
-    print("LoRaFB-SNet | Kaggle GPU Deployment")
-    print("=" * 60)
+    print("=" * 70)
+    print("LoRaFB-SNet | Kaggle GPU Execution")
+    print("=" * 70)
 
     # --------------------------------------------------------
-    # 1. Retrieve GitHub credentials if repository is private
+    # 1. Clone public GitHub repository
     # --------------------------------------------------------
 
-    clone_env = os.environ.copy()
-
-    try:
-        from kaggle_secrets import UserSecretsClient
-
-        print("Retrieving GitHub token...")
-
-        token = UserSecretsClient().get_secret(
-            "GITHUB_TOKEN"
-        )
-
-        if not token:
-            raise RuntimeError(
-                "GITHUB_TOKEN is empty or unavailable. "
-                "Check Kaggle Secrets permissions."
-            )
-
-        auth = base64.b64encode(
-            f"x-access-token:{{token}}".encode()
-        ).decode()
-
-        clone_env = os.environ.copy()
-
-        clone_env["GIT_CONFIG_COUNT"] = "1"
-        clone_env["GIT_CONFIG_KEY_0"] = "http.extraheader"
-        clone_env["GIT_CONFIG_VALUE_0"] = (
-            "AUTHORIZATION: basic " + auth
-        )
-
-        print("GitHub authentication configured.")
-
-    except Exception:
-        print("No GitHub token available; trying public access.")
-
-    # --------------------------------------------------------
-    # 2. Clone latest GitHub repository
-    # --------------------------------------------------------
+    print("\n[1/4] Cloning GitHub repository...")
 
     if REPO_DIR.exists():
-        subprocess.run(
-            ["rm", "-rf", str(REPO_DIR)],
-            check=True
-        )
+
+        import shutil
+        shutil.rmtree(REPO_DIR)
 
     execute([
         "git",
         "clone",
         "--depth", "1",
+        "--single-branch",
         "--branch", BRANCH,
         REPO_URL,
         str(REPO_DIR)
-    ], env=clone_env)
-
-    print("GitHub repository cloned successfully.")
+    ])
 
     # --------------------------------------------------------
-    # 3. Check GPU
+    # 2. GPU verification
     # --------------------------------------------------------
+
+    print("\n[2/4] Checking GPU...")
 
     execute([
         sys.executable,
         "-c",
-        "import torch; "
-        "print('PyTorch:', torch.__version__); "
-        "print('CUDA available:', torch.cuda.is_available()); "
-        "print('GPU:', torch.cuda.get_device_name(0) "
-        "if torch.cuda.is_available() else 'Not available')"
+        (
+            "import torch; "
+            "print('PyTorch:', torch.__version__); "
+            "print('CUDA:', torch.cuda.is_available()); "
+            "print('GPU:', "
+            "torch.cuda.get_device_name(0) "
+            "if torch.cuda.is_available() else 'Unavailable')"
+        )
     ])
 
     # --------------------------------------------------------
-    # 4. Install project dependencies
+    # 3. Install dependencies
     # --------------------------------------------------------
+
+    print("\n[3/4] Installing dependencies...")
 
     requirements_path = REPO_DIR / REQUIREMENTS
 
-    if requirements_path.exists():
-
-        print("Installing project dependencies...")
+    if requirements_path.is_file():
 
         execute([
             sys.executable,
@@ -292,37 +290,53 @@ def main():
         ])
 
     else:
-        print("No requirements.txt found. Skipping installation.")
+
+        print("requirements.txt not found. Skipping.")
 
     # --------------------------------------------------------
-    # 5. Execute actual project main.py
+    # 4. Execute project
     # --------------------------------------------------------
+
+    print("\n[4/4] Starting main.py...")
 
     entrypoint = REPO_DIR / ENTRYPOINT
 
-    if not entrypoint.exists():
-        raise FileNotFoundError(
-            f"Project entrypoint not found: {{entrypoint}}"
-        )
+    if not entrypoint.is_file():
+
+        raise FileNotFoundError(entrypoint)
 
     os.chdir(REPO_DIR)
 
     sys.path.insert(0, str(REPO_DIR))
 
-    print("\\nStarting project execution...")
-    print("Entry point:", entrypoint)
+    # Useful for unbuffered logs
+    os.environ["PYTHONUNBUFFERED"] = "1"
 
     runpy.run_path(
         str(entrypoint),
         run_name="__main__"
     )
 
+    print("\nProject execution completed successfully.")
+
 
 if __name__ == "__main__":
+
     main()
 '''
 
-    DEPLOY_DIR.mkdir(parents=True, exist_ok=True)
+    bootstrap = (
+        bootstrap
+        .replace("__REPO_URL__", repr(repo_url))
+        .replace("__BRANCH__", repr(branch))
+        .replace("__ENTRYPOINT__", repr(PROJECT_ENTRYPOINT))
+        .replace("__REQUIREMENTS__", repr(REQUIREMENTS_FILE))
+    )
+
+    DEPLOY_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
     bootstrap_path = DEPLOY_DIR / "main.py"
 
@@ -331,39 +345,64 @@ if __name__ == "__main__":
         encoding="utf-8"
     )
 
-    print(f"Bootstrap created: {bootstrap_path}")
+    print("Bootstrap:", bootstrap_path)
 
 
 # ============================================================
-# KAGGLE METADATA
+# METADATA
 # ============================================================
 
-def create_metadata():
-    """Generate Kaggle kernel-metadata.json."""
+def validate_metadata():
 
-    print("\n[4/5] Generating Kaggle metadata...")
+    print("\nValidating persistent Kaggle metadata...")
 
-    metadata = {
-        "id": KAGGLE_ID,
-        "title": KAGGLE_TITLE,
-        "code_file": "main.py",
-        "language": "python",
-        "kernel_type": "script",
-        "is_private": True,
-        "enable_gpu": True,
-        "enable_internet": True
-    }
-
-    metadata_path = DEPLOY_DIR / "kernel-metadata.json"
-
-    with open(metadata_path, "w", encoding="utf-8") as file:
-        json.dump(
-            metadata,
-            file,
-            indent=4
+    if not METADATA_PATH.is_file():
+        raise FileNotFoundError(
+            f"Metadata file not found: {METADATA_PATH}"
         )
 
-    print(f"Metadata created: {metadata_path}")
+    with open(METADATA_PATH, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    required_fields = [
+        "id",
+        "title",
+        "code_file",
+        "language",
+        "kernel_type"
+    ]
+
+    for field in required_fields:
+        if field not in metadata:
+            raise ValueError(
+                f"Missing metadata field: {field}"
+            )
+
+    if metadata["id"] != KAGGLE_ID:
+        raise ValueError(
+            "Kaggle kernel ID mismatch."
+        )
+
+    if metadata["kernel_type"] != "script":
+        raise ValueError(
+            "Expected kernel_type='script'."
+        )
+
+    code_path = DEPLOY_DIR / metadata["code_file"]
+
+    if not code_path.is_file():
+        raise FileNotFoundError(
+            f"Kernel source not found: {code_path}"
+        )
+
+    print("Metadata validated successfully.")
+
+    print("Kernel ID:", metadata["id"])
+    print("Code file:", metadata["code_file"])
+    print("GPU:", metadata.get("enable_gpu"))
+    print("Internet:", metadata.get("enable_internet"))
+
+    return metadata
 
 
 # ============================================================
@@ -371,30 +410,165 @@ def create_metadata():
 # ============================================================
 
 def deploy_to_kaggle(no_run=False):
-    """Upload and execute Kaggle kernel."""
 
-    print("\n[5/5] Deploying to Kaggle...")
+    print("\n[5/7] Deploying Kaggle kernel...")
 
     command = [
+
         "kaggle",
         "kernels",
         "push",
+
         "-p",
         str(DEPLOY_DIR),
+
         "--timeout",
         str(KAGGLE_TIMEOUT)
+
     ]
 
     if no_run:
+
         command.append("--no-run")
 
     run_command(command)
 
-    print("\n" + "=" * 60)
-    print("KAGGLE DEPLOYMENT COMPLETED")
-    print("=" * 60)
+    print("\nKaggle deployment submitted.")
 
-    print(f"Kernel: https://www.kaggle.com/code/{KAGGLE_ID}")
+
+# ============================================================
+# EXECUTION MONITORING
+# ============================================================
+
+def get_kernel_status():
+
+    result = subprocess.run(
+
+        [
+            "kaggle",
+            "kernels",
+            "status",
+            KAGGLE_ID
+        ],
+
+        text=True,
+        capture_output=True
+    )
+
+    output = (
+        result.stdout + "\n" + result.stderr
+    ).strip()
+
+    print("\nKaggle status:", output, flush=True)
+
+    if result.returncode != 0:
+
+        return "unknown"
+
+    text_status = output.lower()
+
+    # Match actual status labels, avoiding substring
+    # matches such as "incomplete".
+
+    match = re.search(
+        r'\b(queued|running|complete|completed|error|failed|cancelled)\b',
+        text_status
+    )
+
+    if not match:
+
+        return "unknown"
+
+    status = match.group(1)
+
+    if status in ("complete", "completed"):
+        return "complete"
+
+    if status in ("error", "failed", "cancelled"):
+        return "failed"
+
+    return status
+
+
+def show_logs():
+
+    print("\nRetrieving Kaggle execution logs...")
+
+    subprocess.run(
+        [
+            "kaggle",
+            "kernels",
+            "logs",
+            KAGGLE_ID
+        ],
+        check=False
+    )
+
+
+def wait_for_completion():
+
+    print("\n[6/7] Monitoring Kaggle execution...")
+
+    start_time = time.monotonic()
+
+    while True:
+
+        elapsed = time.monotonic() - start_time
+
+        if elapsed > STATUS_WAIT_TIMEOUT:
+
+            raise TimeoutError(
+                "Kaggle monitoring timeout reached."
+            )
+
+        status = get_kernel_status()
+
+        if status == "complete":
+
+            print("\nKaggle execution completed successfully.")
+
+            return
+
+        if status == "failed":
+
+            show_logs()
+
+            raise RuntimeError(
+                "Kaggle execution failed. Check execution logs."
+            )
+
+        if status in ("queued", "running", "unknown"):
+
+            print(
+                f"Waiting... {int(elapsed)} seconds elapsed.",
+                flush=True
+            )
+
+            time.sleep(POLL_INTERVAL)
+
+
+# ============================================================
+# FINAL REPORT
+# ============================================================
+
+def final_report():
+
+    print("\n[7/7] Deployment report")
+
+    print("=" * 70)
+
+    print("Project:", KAGGLE_TITLE)
+
+    print("Kernel:", KAGGLE_ID)
+
+    print(
+        "URL:",
+        f"https://www.kaggle.com/code/{KAGGLE_ID}"
+    )
+
+    print("Results: Stored on Kaggle")
+
+    print("=" * 70)
 
 
 # ============================================================
@@ -404,49 +578,81 @@ def deploy_to_kaggle(no_run=False):
 def main():
 
     parser = argparse.ArgumentParser(
-        description="Deploy LoRaFB-SNet experiments to Kaggle."
+        description="LoRaFB-SNet Kaggle deployment"
     )
 
     parser.add_argument(
         "--no-run",
-        action="store_true",
-        help="Upload a new Kaggle version without executing it."
+        action="store_true"
     )
 
     parser.add_argument(
         "--skip-git-push",
-        action="store_true",
-        help="Skip pushing the current Git branch."
+        action="store_true"
+    )
+
+    parser.add_argument(
+        "--no-wait",
+        action="store_true"
     )
 
     args = parser.parse_args()
 
     try:
 
+        check_kaggle_cli()
+
         repo_url, branch = check_git()
 
         if not args.skip_git_push:
+
             push_to_github(branch)
 
-        create_bootstrap(repo_url, branch)
+        create_bootstrap(
+            repo_url,
+            branch
+        )
 
-        create_metadata()
+        validate_metadata()
 
         deploy_to_kaggle(
             no_run=args.no_run
         )
 
+        if args.no_run:
+
+            print("\nKernel uploaded without execution.")
+
+            return
+
+        if not args.no_wait:
+
+            wait_for_completion()
+
+        final_report()
+
     except subprocess.CalledProcessError as error:
 
-        print("\nDeployment failed.")
-        print("Command exit code:", error.returncode)
+        print(
+            "\nCommand failed:",
+            error.returncode
+        )
+
         sys.exit(error.returncode)
+
+    except KeyboardInterrupt:
+
+        print("\nMonitoring interrupted by user.")
+
+        sys.exit(130)
 
     except Exception as error:
 
-        print("\nERROR:", error)
+        print("\nDEPLOYMENT ERROR:", error)
+
         sys.exit(1)
 
 
 if __name__ == "__main__":
+
     main()
