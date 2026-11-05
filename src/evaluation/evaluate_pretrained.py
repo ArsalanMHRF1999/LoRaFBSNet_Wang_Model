@@ -1,81 +1,25 @@
-from src.model.lorafb_snet import lorafb_snet18,ConvRecurrentContainer
-from src.utils.functional import set_backend, set_step_mode
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from spikingjelly.activation_based import functional, neuron
+from spikingjelly.activation_based import functional
 from pathlib import Path
 
 def evaluate_model(
+    model,
     test_loader,
     criterion,
-    weights_path,
-    num_classes=101,
+    device,
+    num_classes,
     class_names=None,
-    device="cuda" if torch.cuda.is_available() else "cpu",
     plot_dir="evaluation_results"
 ):
-
-    # ==========================================
-    # 1. Initialize model
-    # ==========================================
-
-    model = lorafb_snet18(num_classes=num_classes, cnf="ADD")
-
-    set_backend(model, 'cupy', neuron.BaseNode, (ConvRecurrentContainer,))
-    set_step_mode(model, 'm', (ConvRecurrentContainer,))
-
-    # ==========================================
-    # 2. Load pretrained weights
-    # ==========================================
-
-    print(f"Loading weights from {weights_path}...", flush=True)
-
-    checkpoint = torch.load(
-        weights_path,
-        map_location=device,
-        weights_only=False
-    )
-
-    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
-        state_dict = checkpoint["state_dict"]
-
-    elif isinstance(checkpoint, dict) and "model" in checkpoint:
-        state_dict = checkpoint["model"]
-
-    else:
-        state_dict = checkpoint
-
-    # Remove DataParallel prefix
-    state_dict = {
-        k.replace("module.", ""): v
-        for k, v in state_dict.items()
-    }
-
-    # Remap recurrent layer names
-    new_state_dict = {}
-
-    for k, v in state_dict.items():
-        if ".sub_" in k:
-            parts = k.split(".")
-            for idx, part in enumerate(parts):
-                if part.startswith("sub_") and part[4:].isdigit():
-                    sub_idx = part.split("_")[1]
-                    parts[idx] = "sub_module"
-                    parts.insert(idx + 1, sub_idx)
-                    break
-
-            k = ".".join(parts)
-        new_state_dict[k] = v
-
-    model.load_state_dict(new_state_dict)
-    model.to(device)
     model.eval()
 
     print("Model loaded successfully!", flush=True)
 
     # ==========================================
-    # 3. Evaluation variables
+    # 1. Evaluation variables
     # ==========================================
 
     total_loss = 0.0
@@ -91,7 +35,7 @@ def evaluate_model(
     batch_losses = []
 
     # ==========================================
-    # 4. Evaluation loop
+    # 2. Evaluation loop
     # ==========================================
 
     print("\nStarting evaluation...\n", flush=True)
@@ -152,7 +96,7 @@ def evaluate_model(
                 )
 
     # ==========================================
-    # 5. Calculate final metrics
+    # 3. Calculate final metrics
     # ==========================================
 
     if total == 0:
@@ -187,7 +131,7 @@ def evaluate_model(
         raise ValueError("class_names must contain num_classes entries.")
 
     # ==========================================
-    # 7. Confusion Matrix
+    # 4. Confusion Matrix
     # ==========================================
 
     cm = np.zeros((num_classes, num_classes), dtype=np.int64)
@@ -235,7 +179,7 @@ def evaluate_model(
     plt.close()
 
     # ==========================================
-    # 8. Per-Class Accuracy
+    # 5. Per-Class Accuracy
     # ==========================================
 
     class_accuracy = np.divide(

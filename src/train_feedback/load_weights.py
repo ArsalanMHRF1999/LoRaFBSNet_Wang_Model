@@ -7,7 +7,7 @@ from spikingjelly.activation_based import neuron
 from src.model.lorafb_snet import lorafb_snet18, ConvRecurrentContainer
 from src.utils.functional import set_backend, set_step_mode
 
-def create_model_with_feedback(weights_path, num_classes=101, device="cuda" if torch.cuda.is_available() else "cpu"):
+def create_model_with_feedback(weights_path, feedback_connection, num_classes, device):
     """
     Create a LoRA-FB-SNet model with feedback connections and load pretrained weights.
 
@@ -23,7 +23,7 @@ def create_model_with_feedback(weights_path, num_classes=101, device="cuda" if t
     # ==========================================
     # 1. Initialize model
     # ==========================================
-    model = lorafb_snet18(num_classes=num_classes, cnf="ADD", feedback_connection=[(4, 3)])
+    model = lorafb_snet18(num_classes=num_classes, cnf="ADD", feedback_connection=feedback_connection)
     set_backend(model, 'cupy', neuron.BaseNode, (ConvRecurrentContainer,))
     set_step_mode(model, 'm',(ConvRecurrentContainer,))
 
