@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from spikingjelly.activation_based import base, layer, neuron, surrogate
-
+from spikingjelly.activation_based import base, layer, neuron, surrogate, functional
+from src.model.feedback_manager import FeedbackConnection
 
 class ConvRecurrentContainer(base.MemoryModule):
     def __init__(self, sub_module, in_channels, out_channels, stride, step_mode="s"):
@@ -150,13 +150,38 @@ class Bottleneck(nn.Module):
 
 class LoRaFBSNet(nn.Module):
     def __init__(self, block, layers, num_classes=101, groups=1, width_per_groups=64, 
-                 norm_layer=None, cnf=None, zero_init_residual=False):
+                 feedback_connection=None, norm_layer=None, cnf=None, zero_init_residual=False):
         super(LoRaFBSNet, self).__init__()
         if norm_layer is None:
             norm_layer = layer.BatchNorm2d
         self._norm_layer = norm_layer
-        
         self.in_planes = 64
+        self.stage_channels = {
+            1: 64 * block.expansion,
+            2: 128 * block.expansion,
+            3: 256 * block.expansion,
+            4: 512 * block.expansion
+        }
+        self.stage_strides = {
+            1: 4,
+            2: 8,
+            3: 16,
+            4: 32
+        }
+        self.feedback_connection = feedback_connection or []
+        self.feedback_modules = nn.ModuleDict()
+        for source, target in self.feedback_connection:
+            if source <= target:
+                raise ValueError("Feedback must connect a higher stage to a lower stage.")
+
+            key = f"{source}_to_{target}"
+            self.feedback_modules[key] = FeedbackConnection(
+                source_channels=self.stage_channels[source],
+                target_channels=self.stage_channels[target],
+                source_stride=self.stage_strides[source],
+                target_stride=self.stage_strides[target]
+            )
+        
         self.groups = groups
         self.base_width = width_per_groups
         self.conv1 = layer.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
@@ -164,15 +189,15 @@ class LoRaFBSNet(nn.Module):
         self.sn1 = neuron.LIFNode(surrogate_function=surrogate.ATan(), detach_reset=True)
         self.maxpool = layer.MaxPool2d(kernel_size=3, stride=2, padding=1)
         layer1 = self._make_layer(block, 64, layers[0], cnf=cnf)
-        self.recurrent_layer1 = ConvRecurrentContainer(layer1, in_channels=64, out_channels=64 * block.expansion, stride=1)
+        self.recurrent_layer1 = ConvRecurrentContainer(layer1, in_channels=64, out_channels=self.stage_channels[1], stride=1)
         layer2 = self._make_layer(block, 128, layers[1], stride=2, cnf=cnf)
-        self.recurrent_layer2 = ConvRecurrentContainer(layer2, in_channels=64 * block.expansion, out_channels=128 * block.expansion, stride=2)
+        self.recurrent_layer2 = ConvRecurrentContainer(layer2, in_channels=self.stage_channels[1], out_channels=self.stage_channels[2], stride=2)
         layer3 = self._make_layer(block, 256, layers[2], stride=2, cnf=cnf)
-        self.recurrent_layer3 = ConvRecurrentContainer(layer3, in_channels=128 * block.expansion, out_channels=256 * block.expansion, stride=2)
+        self.recurrent_layer3 = ConvRecurrentContainer(layer3, in_channels=self.stage_channels[2], out_channels=self.stage_channels[3], stride=2)
         layer4 = self._make_layer(block, 512, layers[3], stride=2, cnf=cnf)
-        self.recurrent_layer4 = ConvRecurrentContainer(layer4, in_channels=256 * block.expansion, out_channels=512 * block.expansion, stride=2)
+        self.recurrent_layer4 = ConvRecurrentContainer(layer4, in_channels=self.stage_channels[3], out_channels=self.stage_channels[4], stride=2)
         self.avgpool = layer.AdaptiveAvgPool2d((1, 1))
-        self.fc = layer.Linear(512 * block.expansion, num_classes)
+        self.fc = layer.Linear(self.stage_channels[4], num_classes)
         
         for m in self.modules():
             if isinstance(m, (layer.Conv2d, nn.Conv2d, nn.ConvTranspose2d)):
@@ -209,12 +234,30 @@ class LoRaFBSNet(nn.Module):
         x = self.bn1(x)
         x = self.sn1(x)
         x = self.maxpool(x)
-        
-        x = self.recurrent_layer1(x)
-        x = self.recurrent_layer2(x)
-        x = self.recurrent_layer3(x)
-        x = self.recurrent_layer4(x)
-        
+        stages = [
+            self.recurrent_layer1, 
+            self.recurrent_layer2, 
+            self.recurrent_layer3, 
+            self.recurrent_layer4
+        ]
+        outputs = []
+        for stage in stages:
+             x = stage(x)
+             outputs.append(x)
+        for source, target in self.feedback_connection:
+            source_idx = source - 1
+            target_idx = target - 1
+            key = f"{source}_to_{target}"
+            source_feature = outputs[source_idx]
+            target_feature = outputs[target_idx]
+            updated_target = self.feedback_modules[key](source_feature, target_feature)
+            outputs[target_idx] = updated_target
+            x = updated_target
+            for idx in range(target_idx + 1, len(outputs)):
+                functional.reset_net(stages[idx])
+                x = stages[idx](x)
+                outputs[idx] = x
+            
         x = self.avgpool(x)
         if self.avgpool.step_mode == 's':
             x = torch.flatten(x, 1)
