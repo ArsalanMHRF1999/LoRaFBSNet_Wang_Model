@@ -5,10 +5,13 @@ import numpy as np
 from spikingjelly.activation_based import functional
 import matplotlib.pyplot as plt
 from src.utils.paths import OUTPUT_ROOT
+from src.utils.functional import set_step_mode
+
+
 
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
     model.eval()
-
+    model.feedback_modules.train()  # Set feedback modules to training mode
     # Keep feedback modules in training mode.
     # This allows their BatchNorm layers to update.
     model.feedback_modules.train()
@@ -92,7 +95,7 @@ def validate_one_epoch(model, val_loader, criterion, device):
 
 
 def train_model(model, train_loader, val_loader, num_epochs, device):
-
+    functional.set_step_mode(model.feedback_modules, step_mode='s')
     # ==========================================
     # 1. Freeze pretrained model
     # ==========================================
