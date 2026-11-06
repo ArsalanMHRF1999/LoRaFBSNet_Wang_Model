@@ -87,35 +87,61 @@ class FeedbackConnection(nn.Module):
         self.last_output = None
         self.last_gate = None
 
+    
     def forward(self, source, target):
         temporal = source.dim() == 5
         if temporal:
             T, B, C, H, W = source.shape
-            source = source.reshape(T * B, C, H, W)
-            target = target.reshape(
-                T * B,
-                target.shape[2],
-                target.shape[3],
-                target.shape[4]
-            )
 
-        feedback = self.feedback(source)
-        if feedback.shape != target.shape:
-            raise RuntimeError(
-                f"Feedback shape {feedback.shape} "
-                f"does not match target shape {target.shape}"
-            )
+            if target.dim() != 5:
+                raise ValueError(
+                    f"Expected target [T,B,C,H,W], got {target.shape}"
+                )
 
-        # Calculate gate
-        gate_input = torch.cat([target, feedback], dim=1)
-        gate = torch.sigmoid(self.gate(gate_input))
+            if target.shape[:2] != (T, B):
+                raise ValueError(
+                    f"Temporal dimensions mismatch: "
+                    f"source={source.shape}, target={target.shape}"
+                )
 
-        # Gated feedback integration
-        output = target + gate * feedback
+            feedback_outputs = []
+            gate_outputs = []
+            output_outputs = []
 
-        if temporal:
-            output = output.reshape(T, B, *output.shape[1:])
-            gate = gate.reshape(T, B, *gate.shape[1:])
+            # Process one timestep at a time.
+            # LIF states persist across timesteps.
+            for t in range(T):
+                source_t = source[t]
+                target_t = target[t]
+                feedback_t = self.feedback(source_t)
+                if feedback_t.shape != target_t.shape:
+                    raise RuntimeError(
+                        f"Feedback shape {feedback_t.shape} "
+                        f"does not match target shape {target_t.shape} "
+                        f"at timestep {t}"
+                    )
+
+                gate_input = torch.cat([target_t, feedback_t], dim=1)
+                gate_t = torch.sigmoid(self.gate(gate_input))
+                output_t = target_t + gate_t * feedback_t
+                feedback_outputs.append(feedback_t)
+                gate_outputs.append(gate_t)
+                output_outputs.append(output_t)
+
+            output = torch.stack(output_outputs, dim=0)
+            gate = torch.stack(gate_outputs, dim=0)
+
+        else:
+            feedback = self.feedback(source)
+            if feedback.shape != target.shape:
+                raise RuntimeError(
+                    f"Feedback shape {feedback.shape} "
+                    f"does not match target shape {target.shape}"
+                )
+
+            gate_input = torch.cat([target, feedback], dim=1)
+            gate = torch.sigmoid(self.gate(gate_input))
+            output = target + gate * feedback
 
         self.last_output = output.detach()
         self.last_gate = gate.detach()
