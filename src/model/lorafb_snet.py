@@ -4,13 +4,13 @@ from spikingjelly.activation_based import base, layer, neuron, surrogate, functi
 from src.model.feedback_manager import FeedbackConnection
 
 class ConvRecurrentContainer(base.MemoryModule):
-    def __init__(self, sub_module, in_channels, out_channels, stride, step_mode="s"):
+    def __init__(self, sub_module, in_channels, out_channels, stride, step_mode="s", external_feedback_channels=0):
         super().__init__()
         self.step_mode = step_mode
         assert not hasattr(sub_module, "step_mode") or sub_module.step_mode == "s"
         self.sub_module_out_channels = out_channels
         self.sub_module = sub_module
-        
+        self.external_feedback_channels = external_feedback_channels
         if stride > 1:
             self.dwconv = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=3, stride=stride, 
                                              padding=1, output_padding=1, groups=out_channels, bias=False)
@@ -18,13 +18,20 @@ class ConvRecurrentContainer(base.MemoryModule):
             self.sn1 = neuron.LIFNode(surrogate_function=surrogate.ATan(), detach_reset=True)
         else:
             self.dwconv = None
-        self.pwconv = nn.Conv2d(in_channels + out_channels, in_channels, kernel_size=1, stride=1, bias=False)
+        recurrent_fusion_channels = in_channels + out_channels
+        self.pwconv = nn.Conv2d(recurrent_fusion_channels, in_channels, kernel_size=1, stride=1, bias=False)
         self.bn = layer.BatchNorm2d(in_channels)
+        if external_feedback_channels > 0:
+            self.feedback_pwconv = nn.Conv2d(external_feedback_channels, in_channels, kernel_size=1, bias=False)
+            self.feedback_bn = layer.BatchNorm2d(in_channels)
+            nn.init.normal_(self.feedback_pwconv.weight, mean=0.0, std=1e-3)
+        else:
+            self.feedback_pwconv = None
+            self.feedback_bn = None
         self.sn = neuron.LIFNode(surrogate_function=surrogate.ATan(), detach_reset=True)
-        
         self.register_memory("y", None)
     
-    def single_step_forward(self, x):
+    def single_step_forward(self, x, external_feedback=None):
         if self.y is None:
             if self.dwconv is None:
                 self.y = torch.zeros(x.size(0), self.sub_module_out_channels, x.size(2), x.size(3)).to(x)
@@ -33,14 +40,36 @@ class ConvRecurrentContainer(base.MemoryModule):
                 w = (x.size(3) + 2 - (3 - 1) - 1) // 2 + 1
                 self.y = torch.zeros(x.size(0), self.sub_module_out_channels, h, w).to(x)
         if self.dwconv is None:
-            out = self.y
+            recurrent = self.y
         else:
-            out = self.sn1(self.bn1(self.dwconv(self.y)))
-        out = torch.cat((x, out), dim=1)
-        out = self.bn(self.pwconv(out))
-        out = self.sn(out)
-        self.y = self.sub_module(out)
-        
+            recurrent = self.sn1(self.bn1(self.dwconv(self.y)))
+        original_fusion = torch.cat([x, recurrent], dim=1)
+        original_fusion = self.bn(self.pwconv(original_fusion))
+        if self.feedback_pwconv is not None:
+            if external_feedback is None:
+                external_feedback = x.new_zeros(
+                    x.shape[0],
+                    self.external_feedback_channels,
+                    x.shape[-2],
+                    x.shape[-1]
+                )
+            if external_feedback.shape[-2:] != x.shape[-2:]:
+                raise ValueError("External feedback spatial dimensions must match container input dimensions.")
+            if external_feedback.shape[1] != self.external_feedback_channels:
+                raise ValueError(
+                    f"Expected {self.external_feedback_channels} "
+                    f"feedback channels, got "
+                    f"{external_feedback.shape[1]}."
+                )
+            feedback_fusion = self.feedback_pwconv(external_feedback)
+            feedback_fusion = self.feedback_bn(
+                feedback_fusion
+            )
+            fused = original_fusion + feedback_fusion
+        else:
+            fused = original_fusion
+        fused = self.sn(fused)
+        self.y = self.sub_module(fused)
         return self.y
 
 
@@ -168,20 +197,28 @@ class LoRaFBSNet(nn.Module):
             3: 16,
             4: 32
         }
-        self.feedback_connection = feedback_connection or []
+        self.feedback_connection = tuple(feedback_connection or ())
         self.feedback_modules = nn.ModuleDict()
+        incoming_feedback_channels = {i: 0 for i in range(1, 5)}
         for source, target in self.feedback_connection:
+            if source not in (1, 2, 3, 4):
+                raise ValueError(f"Invalid source stage: {source}")
+            if target not in (1, 2, 3, 4):
+                raise ValueError(f"Invalid target stage: {target}")
             if source <= target:
                 raise ValueError("Feedback must connect a higher stage to a lower stage.")
 
             key = f"{source}_to_{target}"
+            if key in self.feedback_modules:
+                raise ValueError(f"Duplicate feedback connection: {key}")
+            
             self.feedback_modules[key] = FeedbackConnection(
                 source_channels=self.stage_channels[source],
                 target_channels=self.stage_channels[target],
                 source_stride=self.stage_strides[source],
                 target_stride=self.stage_strides[target]
             )
-        
+            incoming_feedback_channels[target] += self.stage_channels[target]
         self.groups = groups
         self.base_width = width_per_groups
         self.conv1 = layer.Conv2d(3, self.in_planes, kernel_size=7, stride=2, padding=3, bias=False)
@@ -189,22 +226,27 @@ class LoRaFBSNet(nn.Module):
         self.sn1 = neuron.LIFNode(surrogate_function=surrogate.ATan(), detach_reset=True)
         self.maxpool = layer.MaxPool2d(kernel_size=3, stride=2, padding=1)
         layer1 = self._make_layer(block, 64, layers[0], cnf=cnf)
-        self.recurrent_layer1 = ConvRecurrentContainer(layer1, in_channels=64, out_channels=self.stage_channels[1], stride=1)
+        self.recurrent_layer1 = ConvRecurrentContainer(layer1, in_channels=64, out_channels=self.stage_channels[1], stride=1, external_feedback_channels=incoming_feedback_channels[1])
         layer2 = self._make_layer(block, 128, layers[1], stride=2, cnf=cnf)
-        self.recurrent_layer2 = ConvRecurrentContainer(layer2, in_channels=self.stage_channels[1], out_channels=self.stage_channels[2], stride=2)
+        self.recurrent_layer2 = ConvRecurrentContainer(layer2, in_channels=self.stage_channels[1], out_channels=self.stage_channels[2], stride=2, external_feedback_channels=incoming_feedback_channels[2])
         layer3 = self._make_layer(block, 256, layers[2], stride=2, cnf=cnf)
-        self.recurrent_layer3 = ConvRecurrentContainer(layer3, in_channels=self.stage_channels[2], out_channels=self.stage_channels[3], stride=2)
+        self.recurrent_layer3 = ConvRecurrentContainer(layer3, in_channels=self.stage_channels[2], out_channels=self.stage_channels[3], stride=2, external_feedback_channels=incoming_feedback_channels[3])
         layer4 = self._make_layer(block, 512, layers[3], stride=2, cnf=cnf)
-        self.recurrent_layer4 = ConvRecurrentContainer(layer4, in_channels=self.stage_channels[3], out_channels=self.stage_channels[4], stride=2)
+        self.recurrent_layer4 = ConvRecurrentContainer(layer4, in_channels=self.stage_channels[3], out_channels=self.stage_channels[4], stride=2, external_feedback_channels=incoming_feedback_channels[4])
         self.avgpool = layer.AdaptiveAvgPool2d((1, 1))
         self.fc = layer.Linear(self.stage_channels[4], num_classes)
         
         for m in self.modules():
             if isinstance(m, (layer.Conv2d, nn.Conv2d, nn.ConvTranspose2d)):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, layer.BatchNorm2d):
+            elif isinstance(m, (layer.BatchNorm2d, nn.BatchNorm2d)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+        for m in self.modules():
+            if isinstance(m, ConvRecurrentContainer):
+                if m.feedback_pwconv is not None:
+                    nn.init.normal_(m.feedback_pwconv.weight, mean=0.0, std=1e-3)
         
         if zero_init_residual:
             for m in self.modules():
@@ -230,42 +272,41 @@ class LoRaFBSNet(nn.Module):
         return nn.Sequential(*layers)
     
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.sn1(x)
-        x = self.maxpool(x)
-        stages = [
-            self.recurrent_layer1, 
-            self.recurrent_layer2, 
-            self.recurrent_layer3, 
-            self.recurrent_layer4
-        ]
+        functional.reset_net(self)
+        T, B, C, H, W = x.shape
+        stages = [self.recurrent_layer1, self.recurrent_layer2, self.recurrent_layer3, self.recurrent_layer4]
         outputs = []
-        for stage in stages:
-             x = stage(x)
-             outputs.append(x)
-        for source, target in self.feedback_connection:
-            source_idx = source - 1
-            target_idx = target - 1
-            key = f"{source}_to_{target}"
-            source_feature = outputs[source_idx]
-            target_feature = outputs[target_idx]
-            updated_target = self.feedback_modules[key](source_feature, target_feature)
-            outputs[target_idx] = updated_target
-            x = updated_target
-            for idx in range(target_idx + 1, len(outputs)):
-                functional.reset_net(stages[idx])
-                x = stages[idx](x)
-                outputs[idx] = x
-            
-        x = self.avgpool(x)
-        if self.avgpool.step_mode == 's':
-            x = torch.flatten(x, 1)
-        elif self.avgpool.step_mode == 'm':
-            x = torch.flatten(x, 2)
-        x = self.fc(x)
-        
-        return x
+        for t in range(T):
+            x_t = x[t]
+            x_t = self.conv1(x_t)
+            x_t = self.bn1(x_t)
+            x_t = self.sn1(x_t)
+            x_t = self.maxpool(x_t)
+            previous_outputs = [stage.y for stage in stages]
+            for source_idx, stage in enumerate(stages):
+                target_stage = source_idx + 1
+                incoming_feedback = []
+                for source, target in self.feedback_connection:
+                    if target != target_stage:
+                        continue
+                    key = f"{source}_to_{target}"
+                    source_feature = previous_outputs[source - 1]
+                    if source_feature is None:
+                        feedback_feature = x_t.new_zeros(B, self.stage_channels[target], x_t.shape[-2], x_t.shape[-1]).to(x_t)
+                    else:
+                        feedback_feature = self.feedback_modules[key](source_feature)
+                    incoming_feedback.append(feedback_feature)
+                if len(incoming_feedback) > 0:
+                    external_feedback = torch.cat(incoming_feedback, dim=1)
+                else:
+                    external_feedback = None
+                x_t = stage(x_t, external_feedback)
+            pooled = self.avgpool(x_t)
+            pooled = torch.flatten(pooled, 1)
+            logits = self.fc(pooled)
+            outputs.append(logits)
+        outputs = torch.stack(outputs, dim=0)
+        return outputs
 
         
 def lorafb_snet18(**kwargs):
