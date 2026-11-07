@@ -300,6 +300,13 @@ class LoRaFBSNet(nn.Module):
                     external_feedback = torch.cat(incoming_feedback, dim=1)
                 else:
                     external_feedback = None
+
+                if external_feedback is not None:
+                    print(
+                        f"Stage {source_idx + 1}: "
+                        f"input={tuple(x_t.shape)}, "
+                        f"feedback={tuple(external_feedback.shape)}"
+                    )
                 x_t = stage(x_t, external_feedback)
             pooled = self.avgpool(x_t)
             pooled = torch.flatten(pooled, 1)
