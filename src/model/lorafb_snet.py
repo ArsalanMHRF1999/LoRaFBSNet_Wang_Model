@@ -197,6 +197,13 @@ class LoRaFBSNet(nn.Module):
             3: 16,
             4: 32
         }
+
+        self.stage_input_strides = {
+            1: 4,
+            2: 4,
+            3: 8,
+            4: 16
+        }
         self.feedback_connection = tuple(feedback_connection or ())
         self.feedback_modules = nn.ModuleDict()
         incoming_feedback_channels = {i: 0 for i in range(1, 5)}
@@ -216,7 +223,7 @@ class LoRaFBSNet(nn.Module):
                 source_channels=self.stage_channels[source],
                 target_channels=self.stage_channels[target],
                 source_stride=self.stage_strides[source],
-                target_stride=self.stage_strides[target]
+                target_stride=self.stage_input_strides[target]
             )
             incoming_feedback_channels[target] += self.stage_channels[target]
         self.groups = groups
