@@ -24,6 +24,20 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
         # Forward
         outputs = model(clips)
+        print("\n========== MODEL OUTPUT CHECK ==========")
+        print("Grad enabled:", torch.is_grad_enabled())
+        print("Outputs requires_grad:", outputs.requires_grad)
+        print("Outputs grad_fn:", outputs.grad_fn)
+
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                print(
+                    name,
+                    "requires_grad:", param.requires_grad,
+                    "grad:", param.grad
+                )
+
+        print("========================================\n")
 
         # Temporal average
         outputs = outputs.mean(0)

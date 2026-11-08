@@ -108,7 +108,7 @@ def create_model_with_feedback(weights_path, feedback_connection, num_classes, d
 
     model = lorafb_snet18(num_classes=num_classes, cnf="ADD", feedback_connection=feedback_connection)
     set_backend(model, 'cupy', neuron.BaseNode, (ConvRecurrentContainer,))
-    set_step_mode(model, 's', (ConvRecurrentContainer,))
+    set_step_mode(model, 's', ())
 
     # ==========================================
     # 2. Load checkpoint
