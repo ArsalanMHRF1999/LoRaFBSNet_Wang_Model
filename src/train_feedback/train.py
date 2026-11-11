@@ -15,10 +15,6 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
     correct = 0
     total = 0
     for batch_idx, (clips, labels) in enumerate(train_loader):
-        print(outputs.requires_grad, outputs.grad_fn)
-        for name, p in model.named_parameters():
-            if p.requires_grad:
-                print("TRAINABLE:", name)
         functional.reset_net(model)
         clips = clips.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -29,7 +25,8 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
         # Forward
         outputs = model(clips)
-        print(outputs.requires_grad, outputs.grad_fn)
+        if batch_idx == 0:
+            print("outputs require grads: ",outputs.requires_grad, outputs.grad_fn)
         
         # walk the pieces
         for name, p in model.named_parameters():
