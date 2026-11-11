@@ -1,4 +1,7 @@
 from src.model.lorafb_snet import ConvRecurrentContainer
+from spikingjelly.activation_based import neuron
+
+
 def configure_feedback_training(model):
 
     # Freeze everything
@@ -38,16 +41,14 @@ def configure_feedback_training(model):
     print("======================================")
     return trainable_params
 
+
 def set_feedback_train_mode(model):
-
-    # Freeze running statistics of the pretrained backbone
-    model.eval()
-
-    # Enable training mode for top-down feedback modules
-    model.feedback_modules.train()
-
-    # Enable training mode for feedback fusion BatchNorm
-    for module in model.modules():
-        if isinstance(module, ConvRecurrentContainer):
-            if module.feedback_bn is not None:
-                module.feedback_bn.train()
+    model.eval()                                  # frozen BN uses running stats
+    for m in model.modules():
+        if isinstance(m, neuron.BaseNode):
+            m.train()                             # surrogate gradients need train mode
+    model.feedback_modules.train()                # trainable feedback path (incl. its BN)
+    for m in model.modules():
+        if hasattr(m, "feedback_bn") and m.feedback_bn is not None:
+            m.feedback_bn.train()
+        # (the other BNs in the containers stay in eval)

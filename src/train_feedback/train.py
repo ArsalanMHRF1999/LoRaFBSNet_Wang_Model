@@ -10,10 +10,15 @@ from src.model.lorafb_snet import ConvRecurrentContainer
 
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
     set_feedback_train_mode(model)
+    print(model.recurrent_layer3.sn.training)   # should now print True
     total_loss = 0.0
     correct = 0
     total = 0
     for batch_idx, (clips, labels) in enumerate(train_loader):
+        print(outputs.requires_grad, outputs.grad_fn)
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                print("TRAINABLE:", name)
         functional.reset_net(model)
         clips = clips.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)

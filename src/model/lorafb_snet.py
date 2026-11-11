@@ -69,26 +69,7 @@ class ConvRecurrentContainer(base.MemoryModule):
         else:
             fused = original_fusion
         fused = self.sn(fused)
-        print("\n========== AUTOGRAD CHECK ==========")
-        print("Container input:", x.requires_grad)
-        print("Feedback fusion:", feedback_fusion.requires_grad if self.feedback_pwconv is not None else "N/A")
-        print("Fused before LIF:", fused.requires_grad)
-
-        # Test the LIF output
-        print("LIF output grad_fn:", fused.grad_fn)
-
-        # Test the residual stage
         stage_output = self.sub_module(fused)
-
-        print("Stage output:", stage_output.requires_grad)
-        print("Stage output grad_fn:", stage_output.grad_fn)
-
-        # Check whether this stage has frozen parameters
-        print(
-            "All stage parameters frozen:",
-            all(not p.requires_grad for p in self.sub_module.parameters())
-        )
-
         self.y = stage_output
         return self.y
 
