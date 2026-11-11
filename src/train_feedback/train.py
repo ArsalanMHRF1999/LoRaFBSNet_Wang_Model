@@ -24,29 +24,16 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
         # Forward
         outputs = model(clips)
-        print("\n========== MODEL OUTPUT CHECK ==========")
-        print("Grad enabled:", torch.is_grad_enabled())
-        print("Outputs requires_grad:", outputs.requires_grad)
-        print("Outputs grad_fn:", outputs.grad_fn)
-
-        for name, param in model.named_parameters():
-            if param.requires_grad:
-                print(
-                    name,
-                    "requires_grad:", param.requires_grad,
-                    "grad:", param.grad
-                )
-
-        print("========================================\n")
+        print(outputs.requires_grad, outputs.grad_fn)
+        
+        # walk the pieces
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                print("TRAINABLE:", name)
 
         # Temporal average
         outputs = outputs.mean(0)
         loss = criterion(outputs, labels)
-        if not loss.requires_grad:
-            raise RuntimeError(
-                "Loss has no grad_fn. Check whether the feedback "
-                "pathway is connected to the model output."
-            )
 
         # Backpropagation
         loss.backward()
@@ -118,7 +105,8 @@ def train_model(model, train_loader, val_loader, num_epochs, device):
 
     functional.set_step_mode(model.feedback_modules,step_mode='s')
     trainable_params = configure_feedback_training(model)
-
+    trainable = [n for n, p in model.named_parameters() if p.requires_grad]
+    print(len(trainable), trainable[:10])
     # ==========================================
     # 2. Loss, optimizer, scheduler
     # ==========================================
