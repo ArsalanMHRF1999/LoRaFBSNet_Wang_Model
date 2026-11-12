@@ -1,7 +1,7 @@
 from src.utils.dataset_configs import FRAMES_PER_CLIP, STEP_BETWEEN_CLIPS, BATCH_SIZE, NUM_WORKERS       
-from src.dataset.transformer import get_baseline_transforms, UCF101WithVideoID
+from src.dataset.transformer import get_baseline_transforms, UCF101WithVideoID, safe_video_collate
 from src.utils.paths import DATA_ROOT, ANNOTATION_ROOT
-from src.dataset.annotation import create_annotations, SPLITS
+from src.dataset.annotation import create_annotations
 from torch.utils.data import DataLoader
 
 def create_dataloaders(split):
@@ -22,7 +22,8 @@ def create_dataloaders(split):
             batch_size=BATCH_SIZE,
             shuffle=True,
             num_workers=NUM_WORKERS,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=safe_video_collate
         )
         return train_dataset, train_video_loader
     if split == "val":
@@ -41,7 +42,8 @@ def create_dataloaders(split):
             batch_size=BATCH_SIZE,
             shuffle=False,
             num_workers=NUM_WORKERS,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=safe_video_collate
         )
         return val_dataset, val_video_loader
     if split == "test":
@@ -60,6 +62,7 @@ def create_dataloaders(split):
             batch_size=BATCH_SIZE,
             shuffle=False,
             num_workers=NUM_WORKERS,
-            pin_memory=True
+            pin_memory=True,
+            collate_fn=safe_video_collate
         )
         return test_dataset, test_video_loader
