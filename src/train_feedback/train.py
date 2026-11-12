@@ -25,14 +25,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
         # Forward
         outputs = model(clips)
-        if batch_idx == 0:
-            print("outputs require grads: ",outputs.requires_grad, outputs.grad_fn)
-        
-        # walk the pieces
-        for name, p in model.named_parameters():
-            if p.requires_grad:
-                print("TRAINABLE:", name)
-
+     
         # Temporal average
         outputs = outputs.mean(0)
         loss = criterion(outputs, labels)

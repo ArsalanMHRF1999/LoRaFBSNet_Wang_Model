@@ -12,15 +12,15 @@ NUM_CLASSES = 101
 # model_43 = create_model(WEIGHTS_ROOT, num_classes=NUM_CLASSES, device=DEVICE)
 model = create_model_with_feedback(WEIGHTS_ROOT, feedback_connection=[(4, 3)], num_classes=NUM_CLASSES, device=DEVICE)
 # dataset_report()
-test_dataset, test_video_loader = create_dataloaders("test")
+# test_dataset, test_video_loader = create_dataloaders("test")
 # criterion = nn.CrossEntropyLoss()
 # accuracy = evaluate_model(model, test_video_loader, criterion, DEVICE, NUM_CLASSES)
 
-# train_dataset, train_video_loader = create_dataloaders("train")
+train_dataset, train_video_loader = create_dataloaders("train")
 val_dataset, val_video_loader = create_dataloaders("val")
-history_43 = train_model(
+history = train_model(
     model, 
-    test_video_loader, 
+    train_video_loader, 
     val_video_loader, 
     num_epochs=10, 
     device=DEVICE

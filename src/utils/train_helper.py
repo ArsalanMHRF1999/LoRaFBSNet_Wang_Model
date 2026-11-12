@@ -23,22 +23,6 @@ def configure_feedback_training(model):
 
     # Collect all trainable parameters
     trainable_params = [param for param in model.parameters() if param.requires_grad]
-    if not trainable_params:
-        raise RuntimeError("No trainable feedback parameters found!")
-    print("\n========== PARAMETER STATUS ==========")
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            print(f"TRAINABLE: {name} ({param.numel():,})")
-    print(
-        "\nTotal trainable parameters:",
-        sum(p.numel() for p in trainable_params)
-    )
-    print(
-        "Total frozen parameters:",
-        sum(p.numel() for p in model.parameters()
-            if not p.requires_grad)
-    )
-    print("======================================")
     return trainable_params
 
 
