@@ -303,32 +303,13 @@ class LoRaFBSNet(nn.Module):
                         feedback_feature = x_t.new_zeros(B, self.stage_channels[target], x_t.shape[-2], x_t.shape[-1]).to(x_t)
                     else:
                         feedback_feature = self.feedback_modules[key](source_feature)
-                        print(
-                            "Source requires_grad:",
-                            source_feature.requires_grad
-                        )
-
-                        print(
-                            "Feedback requires_grad:",
-                            feedback_feature.requires_grad
-                        )
-
-                        print(
-                            "Feedback grad_fn:",
-                            feedback_feature.grad_fn
-                        )
+                
                     incoming_feedback.append(feedback_feature)
                 if len(incoming_feedback) > 0:
                     external_feedback = torch.cat(incoming_feedback, dim=1)
                 else:
                     external_feedback = None
 
-                if external_feedback is not None:
-                    print(
-                        f"Stage {source_idx + 1}: "
-                        f"input={tuple(x_t.shape)}, "
-                        f"feedback={tuple(external_feedback.shape)}"
-                    )
                 x_t = stage(x_t, external_feedback)
             pooled = self.avgpool(x_t)
             pooled = torch.flatten(pooled, 1)
