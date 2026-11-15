@@ -22,6 +22,6 @@ history = train_model(
     model, 
     train_video_loader, 
     val_video_loader, 
-    num_epochs=10, 
+    num_epochs=1, 
     device=DEVICE
 )
