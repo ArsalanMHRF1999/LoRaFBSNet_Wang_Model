@@ -99,7 +99,7 @@ def train_model(
     val_loader,
     num_epochs,
     device,
-    patience=7,
+    patience=3,
     min_delta_loss=1e-4,
     min_delta_acc=0.1
 ):
