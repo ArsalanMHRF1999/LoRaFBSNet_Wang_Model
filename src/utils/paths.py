@@ -45,9 +45,9 @@ if IS_KAGGLE:
     )
 
     FEEDBACK_CHECKPOINTS = {
-        "Feedback 4-3": Path("/kaggle/input/models/mohammadmehranfar/4_3_feedback/pytorch/default/1/best_feedback_model.pth"),
-        "Feedback 3-2": Path("/kaggle/input/models/mohammadmehranfar/3_2_feedback/pytorch/default/1/best_feedback_model.pth"),
-        "Feedback 3-1": Path("/kaggle/input/models/mohammadmehranfar/3_1_feedback_weight/pytorch/default/1/best_feedback_model.pth"),
+        "Feedback 4-3": Path("/kaggle/input/models/mohammadmehranfar/4-3-feedback/pytorch/default/1/best_feedback_model.pth"),
+        "Feedback 3-2": Path("/kaggle/input/models/mohammadmehranfar/3-2-feedback/pytorch/default/1/best_feedback_model.pth"),
+        "Feedback 3-1": Path("/kaggle/input/models/mohammadmehranfar/3-1-feedback-weight/pytorch/default/1/best_feedback_model.pth"),
     }
 
     OUTPUT_ROOT = Path(
