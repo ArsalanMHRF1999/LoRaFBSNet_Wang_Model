@@ -328,17 +328,18 @@
 
 from pathlib import Path
 
-checkpoint = Path(
-    "/kaggle/input/models/mohammadmehranfar/"
-    "4-3-feedback/pytorch/default/V1/best_feedback_model.pth"
-)
+roots = [
+    Path("/kaggle/input"),
+    Path("/kaggle/working"),
+]
 
-print("Exists:", checkpoint.exists())
+for root in roots:
+    print(f"\n{'='*70}")
+    print(f"Searching in: {root}")
 
-if checkpoint.exists():
-    print("Size:", checkpoint.stat().st_size / (1024**2), "MB")
-else:
-    print("Files found:")
-    for p in checkpoint.parent.rglob("*"):
+    for p in root.rglob("*.pth"):
+        print(p)
+
+    for p in root.rglob("*.pt"):
         print(p)
 
