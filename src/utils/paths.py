@@ -5,7 +5,6 @@ import os
 FEEDBACK_CONFIGS = {
     "Feedback 4-3": [(4, 3)],
     "Feedback 3-2": [(3, 2)],
-    "Feedback 3-1": [(3, 1)],
 }
 
 # =====================================
@@ -33,7 +32,7 @@ if IS_KAGGLE:
         "/kaggle/input/datasets/matthewjansen/ucf101-action-recognition"
     )
 
-    ANNOTATION_ROOT = Path("kaggle/working/annotations")
+    ANNOTATION_ROOT = Path("/kaggle/working/annotations")
 
     COMPARISON_RESULT_ROOT = Path(
         "/kaggle/working/compare_results"
@@ -47,7 +46,6 @@ if IS_KAGGLE:
     FEEDBACK_CHECKPOINTS = {
         "Feedback 4-3": Path("/kaggle/input/models/mohammadmehranfar/4-3-feedback/pytorch/default/1/best_feedback_model.pth"),
         "Feedback 3-2": Path("/kaggle/input/models/mohammadmehranfar/3-2-feedback/pytorch/default/1/best_feedback_model.pth"),
-        "Feedback 3-1": Path("/kaggle/input/models/mohammadmehranfar/3-1-feedback-weight/pytorch/default/1/best_feedback_model.pth"),
     }
 
     OUTPUT_ROOT = Path(

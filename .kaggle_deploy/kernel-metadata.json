@@ -11,7 +11,6 @@
     "kernel_sources": [],
     "model_sources": [
         "mohammadmehranfar/lora-weights/pytorch/default/1",
-        "mohammadmehranfar/3-1-feedback-weight/pytorch/default/1",
         "mohammadmehranfar/3-2-feedback/pytorch/default/1",
         "mohammadmehranfar/4-3-feedback/pytorch/default/1"
     ],
