@@ -33,7 +33,7 @@ if IS_KAGGLE:
         "/kaggle/input/datasets/matthewjansen/ucf101-action-recognition"
     )
 
-    ANNOTATION_ROOT = "kaggle/working/annotations"
+    ANNOTATION_ROOT = Path("kaggle/working/annotations")
 
     COMPARISON_RESULT_ROOT = Path(
         "/kaggle/working/compare_results"
