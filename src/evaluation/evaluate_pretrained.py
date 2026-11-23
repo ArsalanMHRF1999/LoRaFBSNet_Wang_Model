@@ -12,7 +12,8 @@ def evaluate_model(
     device,
     num_classes,
     class_names=None,
-    plot_dir="evaluation_results"
+    plot_dir="evaluation_results",
+    return_details=False
 ):
     model.eval()
 
@@ -368,4 +369,10 @@ def evaluate_model(
 
     print(f"All plots saved to: {plot_dir.resolve()}", flush=True)
 
+    if return_details:
+        return {
+            "top1_accuracy": accuracy,
+            "top5_accuracy": top5_accuracy,
+            "test_loss": test_loss
+        }
     return accuracy, test_loss

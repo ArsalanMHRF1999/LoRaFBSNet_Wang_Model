@@ -2,6 +2,12 @@
 from pathlib import Path
 import os
 
+FEEDBACK_CONFIGS = {
+    "Feedback 4-3": [(4, 3)],
+    "Feedback 3-2": [(3, 2)],
+    "Feedback 3-1": [(3, 1)],
+}
+
 # =====================================
 # Project configuration
 # =====================================
@@ -29,12 +35,25 @@ if IS_KAGGLE:
 
     ANNOTATION_ROOT = DATA_ROOT
 
+    COMPARISON_RESULT_ROOT = Path(
+        "/kaggle/working/compare_results"
+    )
+
     WEIGHTS_ROOT = Path(
         "/kaggle/input/models/mohammadmehranfar/lora-weights/"
         "pytorch/default/1/lorafb_snet18.pth"
     )
 
-    OUTPUT_ROOT = Path("/kaggle/working/feedback_weights")
+    FEEDBACK_CHECKPOINTS = {
+        "Feedback 4-3": Path("/kaggle/input/models/mohammadmehranfar/4_3_feedback/pytorch/default/1/best_feedback_model.pth"),
+        "Feedback 3-2": Path("/kaggle/input/models/mohammadmehranfar/3_2_feedback/pytorch/default/1/best_feedback_model.pth"),
+        "Feedback 3-1": Path("/kaggle/input/models/mohammadmehranfar/3_1_feedback_weight/pytorch/default/1/best_feedback_model.pth"),
+    }
+
+    OUTPUT_ROOT = Path(
+        "/kaggle/working/feedback_weights"
+    )
+
 
 else:
 
@@ -54,7 +73,12 @@ else:
         / "lorafb_snet18.pth"
     )
 
-    # New training outputs
+    FEEDBACK_CHECKPOINTS = {
+        "Feedback 4-3": Path(".../.../.../feedback_weights/weights/feedback_4_3/best_feedback_model.pth"),
+        "Feedback 3-2": Path(".../.../.../feedback_weights/weights/feedback_3_2/best_feedback_model.pth"),
+        "Feedback 3-1": Path(".../.../.../feedback_weights/weights/feedback_3_1/best_feedback_model.pth"),
+    }
+
     OUTPUT_ROOT = (
         DATA_STORAGE
         / "outputs"
@@ -67,6 +91,9 @@ else:
 
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
+COMPARISON_RESULT_ROOT = Path("comparison_results")
+COMPARISON_RESULT_ROOT.mkdir(parents=True, exist_ok=True)
+
 # =====================================
 # Configuration validation
 # =====================================
@@ -78,12 +105,4 @@ print(f"Dataset root: {DATA_ROOT}")
 print(f"Annotation root: {ANNOTATION_ROOT}")
 print(f"Weights path: {WEIGHTS_ROOT}")
 print(f"Output root: {OUTPUT_ROOT}")
-
-print("=" * 50)
-
-print("Dataset exists:", DATA_ROOT.exists())
-print("Train CSV exists:", (DATA_ROOT / "train.csv").exists())
-print("Validation CSV exists:", (DATA_ROOT / "val.csv").exists())
-print("Test CSV exists:", (DATA_ROOT / "test.csv").exists())
-print("Model weights exist:", WEIGHTS_ROOT.is_file())
-print("Output directory exists:", OUTPUT_ROOT.exists())
+print(f"Compare_Output root: {COMPARISON_RESULT_ROOT}")
