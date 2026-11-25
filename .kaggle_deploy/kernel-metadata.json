@@ -1,7 +1,7 @@
 {
     "id": "mohammadmehranfar/lorafb-snet-experiments",
     "title": "LoRaFB-SNet Experiments",
-    "code_file": "main.py",
+    "code_file": "test_main.py",
     "language": "python",
     "kernel_type": "script",
     "is_private": false,
@@ -10,9 +10,7 @@
     "competition_sources": [],
     "kernel_sources": [],
     "model_sources": [
-        "mohammadmehranfar/lora-weights/pytorch/default/1",
-        "mohammadmehranfar/3-2-feedback/pytorch/default/1",
-        "mohammadmehranfar/4-3-feedback/pytorch/default/1"
+        "mohammadmehranfar/lora-weights/pytorch/default/1"
     ],
     "dataset_sources": [
         "matthewjansen/ucf101-action-recognition"
