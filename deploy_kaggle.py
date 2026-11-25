@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent
 KAGGLE_ID = "mohammadmehranfar/lorafb-snet-experiments"
 KAGGLE_TITLE = "LoRaFB-SNet Experiments"
 
-PROJECT_ENTRYPOINT = "main.py"
+PROJECT_ENTRYPOINT = "test_main.py"
 REQUIREMENTS_FILE = "requirements.txt"
 
 DEPLOY_DIR = ROOT / ".kaggle_deploy"
