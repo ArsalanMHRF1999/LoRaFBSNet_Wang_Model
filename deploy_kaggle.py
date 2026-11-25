@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent
 KAGGLE_ID = "mohammadmehranfar/lorafb-snet-experiments"
 KAGGLE_TITLE = "LoRaFB-SNet Experiments"
 
-PROJECT_ENTRYPOINT = "test_main.py"
+PROJECT_ENTRYPOINT = "main.py"
 REQUIREMENTS_FILE = "requirements.txt"
 
 DEPLOY_DIR = ROOT / ".kaggle_deploy"
@@ -338,7 +338,7 @@ if __name__ == "__main__":
         exist_ok=True
     )
 
-    bootstrap_path = DEPLOY_DIR / "test_main.py"
+    bootstrap_path = DEPLOY_DIR / "main.py"
 
     bootstrap_path.write_text(
         bootstrap,
