@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from torch.utils.data import Subset, DataLoader
-from spikingjelly.activation_based import functional, neuron
+from spikingjelly.activation_based import functional
 
 from src.utils.paths import WEIGHTS_ROOT, OUTPUT_ROOT
 from src.utils.dataset_configs import BATCH_SIZE, NUM_WORKERS
@@ -15,6 +15,7 @@ from src.utils.train_helper import configure_feedback_training, set_feedback_tra
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 NUM_CLASSES = 101
+NUM_EPOCHS = 10
 
 # 1. Build model with (4 -> 3) feedback
 model = create_model_with_feedback(
@@ -31,8 +32,8 @@ full_train_ds, _ = create_dataloaders("train")
 full_val_ds, _ = create_dataloaders("val")
 
 g = torch.Generator().manual_seed(42)
-train_idx = torch.randperm(len(full_train_ds), generator=g)[:256].tolist()
-val_idx = torch.randperm(len(full_val_ds), generator=g)[:128].tolist()
+train_idx = torch.randperm(len(full_train_ds), generator=g)[:1024].tolist()
+val_idx = torch.randperm(len(full_val_ds), generator=g)[:512].tolist()
 
 small_train_loader = DataLoader(
     Subset(full_train_ds, train_idx),
@@ -62,10 +63,12 @@ diag = {
     "fb_act_std": [],
     "orig_act_std": [],
     "spike_rate_l3": [],
+    "lr": [],
 }
 
 # Hook target stage (layer 3) input/output stats
 act_cache = {}
+
 
 def hook_layer3_in(module, inp, out):
     # inp[0] is x_t, inp[1] is external_feedback (if passed)
@@ -77,16 +80,22 @@ def hook_layer3_in(module, inp, out):
     else:
         act_cache["fb_std"] = 0.0
 
+
 def hook_sn_out(module, inp, out):
     act_cache["l3_sn_rate"] = out.detach().float().mean().item()
+
 
 h1 = model.recurrent_layer3.register_forward_hook(hook_layer3_in)
 h2 = model.recurrent_layer3.sn.register_forward_hook(hook_sn_out)
 
 criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 optimizer = optim.AdamW(trainable_params, lr=1e-4, weight_decay=1e-3)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
-for epoch in range(10):
+for epoch in range(NUM_EPOCHS):
+    current_lr = optimizer.param_groups[0]["lr"]
+    diag["lr"].append(current_lr)
+
     set_feedback_train_mode(model)
     tr_loss, tr_correct, tr_total = 0.0, 0, 0
     epoch_raw_grads, epoch_fb_stds, epoch_x_stds, epoch_rates = [], [], [], []
@@ -132,6 +141,8 @@ for epoch in range(10):
             va_correct += outputs.argmax(dim=1).eq(labels).sum().item()
             va_total += bs
 
+    scheduler.step()
+
     fb_w_norm = torch.sqrt(
         sum((p.detach().float() ** 2).sum() for p in trainable_params)
     ).item()
@@ -147,7 +158,7 @@ for epoch in range(10):
     diag["spike_rate_l3"].append(float(np.mean(epoch_rates)) if epoch_rates else 0.0)
 
     print(
-        f"Ep {epoch+1:02d} | "
+        f"Ep {epoch+1:02d} | LR: {current_lr:.2e} | "
         f"Tr Loss: {diag['train_loss'][-1]:.4f} Acc: {diag['train_acc'][-1]:.1f}% | "
         f"Val Loss: {diag['val_loss'][-1]:.4f} Acc: {diag['val_acc'][-1]:.1f}% | "
         f"||W_fb||: {fb_w_norm:.4f} | fb/x std: {diag['fb_act_std'][-1]:.4f}/{diag['orig_act_std'][-1]:.4f}"
@@ -156,35 +167,54 @@ for epoch in range(10):
 h1.remove()
 h2.remove()
 
-# 4. Plot diagnostic dashboard
+# 4. Plot diagnostic dashboard (2x3 including LR)
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+np.savez(OUTPUT_ROOT / "kaggle_overfit_diag.npz", **{k: np.asarray(v) for k, v in diag.items()})
+
+fig, axes = plt.subplots(2, 3, figsize=(15, 8))
 ep_axis = np.arange(1, len(diag["train_loss"]) + 1)
 
-axes[0, 0].plot(ep_axis, diag["train_loss"], label="Train Loss")
-axes[0, 0].plot(ep_axis, diag["val_loss"], label="Val Loss")
+axes[0, 0].plot(ep_axis, diag["train_loss"], marker="o", label="Train Loss")
+axes[0, 0].plot(ep_axis, diag["val_loss"], marker="s", label="Val Loss")
 axes[0, 0].set_title("Loss (Overfit Check)")
+axes[0, 0].set_xticks(ep_axis)
 axes[0, 0].legend()
 axes[0, 0].grid(alpha=0.3)
 
-axes[0, 1].plot(ep_axis, diag["train_acc"], label="Train Acc %")
-axes[0, 1].plot(ep_axis, diag["val_acc"], label="Val Acc %")
+axes[0, 1].plot(ep_axis, diag["train_acc"], marker="o", label="Train Acc %")
+axes[0, 1].plot(ep_axis, diag["val_acc"], marker="s", label="Val Acc %")
 axes[0, 1].set_title("Accuracy")
+axes[0, 1].set_xticks(ep_axis)
 axes[0, 1].legend()
 axes[0, 1].grid(alpha=0.3)
 
-axes[1, 0].plot(ep_axis, diag["fb_act_std"], label="Feedback Proj Std")
-axes[1, 0].plot(ep_axis, diag["orig_act_std"], label="Layer 3 Input Std")
+axes[0, 2].plot(ep_axis, diag["lr"], marker="o", color="tab:purple", label="LR")
+axes[0, 2].set_title("Learning Rate Over Epochs")
+axes[0, 2].set_xlabel("Epoch")
+axes[0, 2].set_ylabel("LR")
+axes[0, 2].set_xticks(ep_axis)
+axes[0, 2].legend()
+axes[0, 2].grid(alpha=0.3)
+
+axes[1, 0].plot(ep_axis, diag["fb_act_std"], marker="o", label="Feedback Proj Std")
+axes[1, 0].plot(ep_axis, diag["orig_act_std"], marker="s", label="Layer 3 Input Std")
 axes[1, 0].set_title("Feedback vs. Feedforward Scale")
+axes[1, 0].set_xticks(ep_axis)
 axes[1, 0].legend()
 axes[1, 0].grid(alpha=0.3)
 
-axes[1, 1].plot(ep_axis, diag["fb_weight_norm"], label="Trainable ||W||_2")
-axes[1, 1].plot(ep_axis, diag["raw_grad_norm"], label="Raw Grad Norm")
-axes[1, 1].plot(ep_axis, diag["spike_rate_l3"], label="Layer 3 SN Spike Rate")
-axes[1, 1].set_title("Weights, Gradients & Spiking")
+axes[1, 1].plot(ep_axis, diag["fb_weight_norm"], marker="o", label="Trainable ||W||_2")
+axes[1, 1].set_title("Trainable Parameter L2 Norm")
+axes[1, 1].set_xticks(ep_axis)
 axes[1, 1].legend()
 axes[1, 1].grid(alpha=0.3)
+
+axes[1, 2].plot(ep_axis, diag["raw_grad_norm"], marker="o", label="Raw Grad Norm")
+axes[1, 2].plot(ep_axis, diag["spike_rate_l3"], marker="s", label="Layer 3 SN Spike Rate")
+axes[1, 2].set_title("Gradients & Spiking")
+axes[1, 2].set_xticks(ep_axis)
+axes[1, 2].legend()
+axes[1, 2].grid(alpha=0.3)
 
 plt.tight_layout()
 plt.savefig(OUTPUT_ROOT / "kaggle_overfit_diagnostics.png", dpi=200)

@@ -127,8 +127,8 @@ def train_model(
 
     optimizer = optim.AdamW(
         trainable_params,
-        lr=3e-4,
-        weight_decay=1e-4
+        lr=3e-5,
+        weight_decay=1e-2
     )
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
