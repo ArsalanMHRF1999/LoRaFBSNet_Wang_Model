@@ -9,7 +9,7 @@ from pathlib import Path
 REPO_URL = 'https://github.com/ArsalanMHRF1999/LoRaFBSNet_Wang_Model.git'
 BRANCH = 'main'
 
-ENTRYPOINT = 'main.py'
+ENTRYPOINT = 'test_main.py'
 REQUIREMENTS = 'requirements.txt'
 
 WORK_DIR = Path("/kaggle/working")

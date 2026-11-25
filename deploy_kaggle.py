@@ -338,7 +338,7 @@ if __name__ == "__main__":
         exist_ok=True
     )
 
-    bootstrap_path = DEPLOY_DIR / "main.py"
+    bootstrap_path = DEPLOY_DIR / "test_main.py"
 
     bootstrap_path.write_text(
         bootstrap,
